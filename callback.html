@@ -1,27 +1,41 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Spotify Callback</title>
-</head>
-<body>
-  <p>Finishing Spotify login…</p>
-  <script>
-    // Parse access_token and expires_in from URL hash
-    const hash = window.location.hash.substring(1); // remove '#'
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get("access_token");
-    const expiresIn = params.get("expires_in"); // seconds
+<script>
+const CLIENT_ID = "239b451c89a645c89667872960578d60";
+const REDIRECT_URI = "https://saichaitanya292.github.io/spotify_automix/callback.html";
 
-    if (accessToken) {
-      const expiresAt = Date.now() + Number(expiresIn) * 1000;
-      localStorage.setItem("spotify_access_token", accessToken);
-      localStorage.setItem("spotify_token_expires_at", String(expiresAt));
-      // Go back to main page
-      window.location.href = "index.html";
-    } else {
-      document.body.innerHTML = "<p>Failed to get access token.</p>";
+async function getToken() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+
+    const codeVerifier = localStorage.getItem("pkce_verifier");
+
+    if (!code) {
+        document.body.innerHTML = "No authorization code found.";
+        return;
     }
-  </script>
-</body>
-</html>
+
+    const body = new URLSearchParams({
+        client_id: CLIENT_ID,
+        grant_type: "authorization_code",
+        code: code,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: codeVerifier
+    });
+
+    const result = await fetch("https://accounts.spotify.com/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body
+    });
+
+    const data = await result.json();
+
+    if (data.access_token) {
+        localStorage.setItem("access_token", data.access_token);
+        window.location = "index.html";
+    } else {
+        document.body.innerHTML = "Failed to get access token.<br>" + JSON.stringify(data);
+    }
+}
+
+getToken();
+</script>
