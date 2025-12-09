@@ -11,7 +11,7 @@
     const hash = window.location.hash.substring(1); // remove '#'
     const params = new URLSearchParams(hash);
     const accessToken = params.get("access_token");
-    const expiresIn = params.get("expires_in"); // in seconds
+    const expiresIn = params.get("expires_in"); // seconds
 
     if (accessToken) {
       const expiresAt = Date.now() + Number(expiresIn) * 1000;
