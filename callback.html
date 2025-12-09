@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Spotify Callback</title>
+</head>
+<body>
+  <p>Finishing Spotify login…</p>
+  <script>
+    // Parse access_token and expires_in from URL hash
+    const hash = window.location.hash.substring(1); // remove '#'
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get("access_token");
+    const expiresIn = params.get("expires_in"); // in seconds
+
+    if (accessToken) {
+      const expiresAt = Date.now() + Number(expiresIn) * 1000;
+      localStorage.setItem("spotify_access_token", accessToken);
+      localStorage.setItem("spotify_token_expires_at", String(expiresAt));
+      // Go back to main page
+      window.location.href = "index.html";
+    } else {
+      document.body.innerHTML = "<p>Failed to get access token.</p>";
+    }
+  </script>
+</body>
+</html>
