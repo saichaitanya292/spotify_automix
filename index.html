@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Spotify AutoMix</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #020617;
+      color: #e5e7eb;
+      display: flex;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      max-width: 640px;
+      width: 100%;
+      background: #020617;
+      border-radius: 16px;
+      border: 1px solid #1f2937;
+      padding: 20px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+    button {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #4b5563;
+      background: #111827;
+      color: #e5e7eb;
+      cursor: pointer;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    button:hover { transform: translateY(-1px); }
+    .track-list {
+      max-height: 220px;
+      overflow-y: auto;
+      margin-top: 10px;
+      border-radius: 8px;
+      border: 1px solid #1f2937;
+      padding: 8px;
+      font-size: 14px;
+    }
+    .status {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #a5b4fc;
+      white-space: pre-line;
+    }
+    .token-info {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Spotify AutoMix (GitHub Pages)</h2>
+    <p style="font-size:14px;color:#9ca3af;">
+      Click “Login with Spotify” first. After login, you’ll come back here and can start AutoMix.
+    </p>
+
+    <div id="loggedOut">
+      <button id="loginBtn">Login with Spotify</button>
+    </div>
+
+    <div id="loggedIn" style="display:none;">
+      <div class="token-info" id="tokenInfo"></div>
+      <button id="loadBtn">Load My Top Tracks</button>
+      <div class="track-list" id="trackList"></div>
+      <button id="startBtn" disabled>Start AutoMix</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <button id="logoutBtn">Logout</button>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <script>
+    // ===== CONFIG =====
+    const CLIENT_ID = "239b451c89a645c89667872960578d60"; // <-- put your Spotify client id
+    const REDIRECT_URI =
+      "https://saichiatanya292.github.io/spotify_automix/callback.html";
+
+    const SCOPES = [
+      "user-read-private",
+      "user-top-read",
+      "playlist-read-private"
+    ];
+
+    // ===== UI ELEMENTS =====
+    const loginBtn = document.getElementById("loginBtn");
+    const loadBtn = document.getElementById("loadBtn");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const trackListDiv = document.getElementById("trackList");
+    const statusDiv = document.getElementById("status");
+    const tokenInfoDiv = document.getElementById("tokenInfo");
+    const loggedOutDiv = document.getElementById("loggedOut");
+    const loggedInDiv = document.getElementById("loggedIn");
+
+    // ===== STATE =====
+    let accessToken = null;
+    let tracks = [];
+    let currentIndex = 0;
+    let isPlaying = false;
+    const crossfadeSeconds = 5;
+
+    const players = [new Audio(), new Audio()];
+    let activePlayer = 0;
+    let crossfadeTimeout = null;
+    let fadeInterval = null;
+
+    function logStatus(msg) {
+      console.log(msg);
+      statusDiv.textContent = msg;
+    }
+
+    // ===== AUTH / LOGIN =====
+    function buildLoginUrl() {
+      const params = new URLSearchParams({
+        client_id: CLIENT_ID,
+        response_type: "token",
+        redirect_uri: REDIRECT_URI,
+        scope: SCOPES.join(" "),
+        show_dialog: "true"
+      });
+      return `https://accounts.spotify.com/authorize?${params.toString()}`;
+    }
+
+    function loadTokenFromStorage() {
+      const token = localStorage.getItem("spotify_access_token");
+      const expiry = localStorage.getItem("spotify_token_expires_at");
+
+      if (!token || !expiry) return null;
+
+      if (Date.now() > Number(expiry)) {
+        // expired
+        localStorage.removeItem("spotify_access_token");
+        localStorage.removeItem("spotify_token_expires_at");
+        return null;
+      }
+
+      return token;
+    }
+
+    function updateAuthUI() {
+      accessToken = loadTokenFromStorage();
+      if (accessToken) {
+        loggedOutDiv.style.display = "none";
+        loggedInDiv.style.display = "block";
+        const exp = new Date(
+          Number(localStorage.getItem("spotify_token_expires_at"))
+        );
+        tokenInfoDiv.textContent = "Token active until: " + exp.toLocaleTimeString();
+      } else {
+        loggedOutDiv.style.display = "block";
+        loggedInDiv.style.display = "none";
+      }
+    }
+
+    loginBtn.addEventListener("click", () => {
+      window.location.href = buildLoginUrl();
+    });
+
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("spotify_access_token");
+      localStorage.removeItem("spotify_token_expires_at");
+      stopAutoMix();
+      updateAuthUI();
+    });
+
+    // ===== LOAD TRACKS =====
+    async function loadTopTracks() {
+      if (!accessToken) {
+        alert("Please login again.");
+        return;
+      }
+
+      logStatus("Loading your top tracks from Spotify...");
+
+      try {
+        const res = await fetch(
+          "https://api.spotify.com/v1/me/top/tracks?limit=20",
+          {
+            headers: {
+              Authorization: "Bearer " + accessToken,
+            },
+          }
+        );
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text);
+        }
+
+        const data = await res.json();
+        tracks = data.items.filter(t => t.preview_url);
+
+        if (!tracks.length) {
+          logStatus("No tracks with preview audio found in your top tracks.");
+          return;
+        }
+
+        trackListDiv.innerHTML = tracks
+          .map(
+            (t, i) =>
+              `${i + 1}. ${t.name} — ${t.artists.map(a => a.name).join(", ")}`
+          )
+          .join("<br>");
+
+        logStatus(`Loaded ${tracks.length} tracks with previews.`);
+        startBtn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        logStatus("Error: " + err.message);
+      }
+    }
+
+    // ===== AUTOMIX LOGIC =====
+    function startAutoMix() {
+      if (!tracks.length) {
+        alert("Load tracks first.");
+        return;
+      }
+      if (isPlaying) return;
+      isPlaying = true;
+      currentIndex = 0;
+      activePlayer = 0;
+      stopBtn.disabled = false;
+      startBtn.disabled = true;
+      logStatus("Starting AutoMix...");
+      playTrack(currentIndex);
+    }
+
+    function stopAutoMix() {
+      isPlaying = false;
+      players[0].pause();
+      players[1].pause();
+      players[0].currentTime = 0;
+      players[1].currentTime = 0;
+      clearTimeout(crossfadeTimeout);
+      clearInterval(fadeInterval);
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      logStatus("Stopped.");
+    }
+
+    function playTrack(index) {
+      if (!isPlaying) return;
+      if (index >= tracks.length) {
+        logStatus("End of track list.");
+        stopAutoMix();
+        return;
+      }
+
+      const track = tracks[index];
+      logStatus(
+        `Now playing: ${track.name} — ${track.artists
+          .map(a => a.name)
+          .join(", ")}`
+      );
+
+      const player = players[activePlayer];
+      const otherPlayer = players[1 - activePlayer];
+
+      otherPlayer.pause();
+      otherPlayer.currentTime = 0;
+      otherPlayer.volume = 0;
+
+      player.src = track.preview_url;
+      player.volume = 1;
+      player.play().catch(console.error);
+
+      player.onloadedmetadata = () => {
+        const duration = player.duration || 30;
+        const crossfadeStart = Math.max(0, duration - crossfadeSeconds);
+
+        clearTimeout(crossfadeTimeout);
+        crossfadeTimeout = setTimeout(() => {
+          const nextIndex = index + 1;
+          if (nextIndex >= tracks.length) {
+            player.onended = () => stopAutoMix();
+            return;
+          }
+          crossfadeTo(nextIndex);
+        }, crossfadeStart * 1000);
+      };
+    }
+
+    function crossfadeTo(nextIndex) {
+      if (!isPlaying) return;
+
+      const fromPlayer = players[activePlayer];
+      const toPlayer = players[1 - activePlayer];
+      const nextTrack = tracks[nextIndex];
+
+      logStatus(
+        `Crossfading to: ${nextTrack.name} — ${nextTrack.artists
+          .map(a => a.name)
+          .join(", ")}`
+      );
+
+      toPlayer.src = nextTrack.preview_url;
+      toPlayer.volume = 0;
+      toPlayer.play().catch(console.error);
+
+      const steps = 20;
+      const stepTime = (crossfadeSeconds * 1000) / steps;
+      let step = 0;
+
+      clearInterval(fadeInterval);
+      fadeInterval = setInterval(() => {
+        step++;
+        const p = step / steps;
+        fromPlayer.volume = Math.max(0, 1 - p);
+        toPlayer.volume = Math.min(1, p);
+        if (step >= steps) {
+          clearInterval(fadeInterval);
+          fromPlayer.pause();
+          fromPlayer.currentTime = 0;
+          activePlayer = 1 - activePlayer;
+          currentIndex = nextIndex;
+          playTrack(currentIndex);
+        }
+      }, stepTime);
+    }
+
+    // button wiring
+    loadBtn.addEventListener("click", loadTopTracks);
+    startBtn.addEventListener("click", startAutoMix);
+    stopBtn.addEventListener("click", stopAutoMix);
+
+    // initialize auth UI
+    updateAuthUI();
+  </script>
+</body>
+</html>
