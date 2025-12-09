@@ -21,21 +21,7 @@ async function generateCodeChallenge(codeVerifier) {
         .replace(/=+$/, "");
 }
 
-async function login() {
-    const codeVerifier = generateCodeVerifier();
-    const codeChallenge = await generateCodeChallenge(codeVerifier);
-
-    localStorage.setItem("pkce_verifier", codeVerifier);
-
-    const params = new URLSearchParams({
-        client_id: CLIENT_ID,
-        response_type: "code",
-        redirect_uri: REDIRECT_URI,
-        code_challenge_method: "S256",
-        code_challenge: codeChallenge,
-        scope: SCOPES
-    });
-
-    window.location = "https://accounts.spotify.com/authorize?" + params;
+function loginWithSpotify() {
+  window.location.href = "https://spotify-auth.saichaitanya292.workers.dev/login";
 }
 </script>
